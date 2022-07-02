@@ -10,6 +10,7 @@ AviUtlInternal g_auin;
 
 DECLARE_HOOK_PROC(LRESULT, WINAPI, SettingDialogProc, (HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam));
 DECLARE_HOOK_PROC(LONG, WINAPI, SetWindowLongA, (HWND hwnd, int index, LONG newLong));
+DECLARE_HOOK_PROC(INT_PTR, WINAPI, DialogBoxParamA, (HINSTANCE instance, LPCSTR templateName, HWND parent, DLGPROC dlgProc, LPARAM lParam));
 
 HWND getComboBox(HWND settingDialog)
 {
@@ -61,13 +62,26 @@ IMPLEMENT_HOOK_PROC_NULL(LRESULT, WINAPI, SettingDialogProc, (HWND hwnd, UINT me
 		{
 			MY_TRACE(_T("SettingDialogProc(WM_CREATE)\n"));
 
-			// script_sort.auf 内の ::SetWindowLongA() をフックする。
-
-			HMODULE module = ::GetModuleHandle(_T("script_sort.auf"));
-
-			if (module)
 			{
-				true_SetWindowLongA = hookImportFunc(module, "SetWindowLongA", hook_SetWindowLongA);
+				// script_sort.auf 内の ::SetWindowLongA() をフックする。
+
+				HMODULE module = ::GetModuleHandle(_T("script_sort.auf"));
+
+				if (module)
+				{
+					true_SetWindowLongA = hookImportFunc(module, "SetWindowLongA", hook_SetWindowLongA);
+				}
+			}
+
+			{
+				// rikky_module.dll 内の ::DialogBoxParamA() をフックする。
+
+				HMODULE module = ::LoadLibrary(_T("rikky_module.dll"));
+
+				if (module)
+				{
+					true_DialogBoxParamA = hookImportFunc(module, "DialogBoxParamA", hook_DialogBoxParamA);
+				}
 			}
 
 			break;
@@ -130,13 +144,48 @@ IMPLEMENT_HOOK_PROC_NULL(LONG, WINAPI, SetWindowLongA, (HWND hwnd, int index, LO
 	return true_SetWindowLongA(hwnd, index, newLong);
 }
 
+DLGPROC true_dlgProc = 0;
+INT_PTR CALLBACK hook_dlgProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+	switch (message)
+	{
+	case WM_NOTIFY:
+		{
+			MY_TRACE(_T("WM_NOTIFY\n"));
+
+			NMHDR* nm = (NMHDR*)lParam;
+
+			MY_TRACE(_T("%d, %d, 0x%08X\n"), nm->code, nm->idFrom, nm->hwndFrom);
+			MY_TRACE_HWND(nm->hwndFrom);
+
+			return 0;
+		}
+	case WM_PRINTCLIENT:
+		{
+			MY_TRACE(_T("WM_PRINTCLIENT\n"));
+
+			break;
+		}
+	}
+
+	return true_dlgProc(hwnd, message, wParam, lParam);
+}
+
+IMPLEMENT_HOOK_PROC_NULL(INT_PTR, WINAPI, DialogBoxParamA, (HINSTANCE instance, LPCSTR templateName, HWND parent, DLGPROC dlgProc, LPARAM lParam))
+{
+	MY_TRACE(_T("DialogBoxParamA(0x%08X, 0x%08X, 0x%08X, 0x%08X, 0x%08X)\n"), instance, templateName, parent, dlgProc, lParam);
+
+	true_dlgProc = dlgProc;
+	return ::DialogBoxParamW(instance, (LPCWSTR)templateName, parent, hook_dlgProc, lParam);
+}
+
 //---------------------------------------------------------------------
 //		フィルタ構造体のポインタを渡す関数
 //---------------------------------------------------------------------
 EXTERN_C __declspec(dllexport) FILTER_DLL* CALLBACK GetFilterTable()
 {
 	static TCHAR g_filterName[] = TEXT("スクリプト並び替えパッチ");
-	static TCHAR g_filterInformation[] = TEXT("スクリプト並び替えパッチ 1.0.0 by 蛇色");
+	static TCHAR g_filterInformation[] = TEXT("スクリプト並び替えパッチ 2.0.0 by 蛇色");
 
 	static FILTER_DLL g_filter =
 	{
